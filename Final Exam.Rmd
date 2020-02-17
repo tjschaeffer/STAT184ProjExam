@@ -1,0 +1,45 @@
+---
+title: "Final Exam"
+output: html_notebook
+---
+```{r}
+# Station data; 21 KB... downloads pretty fast
+download.file(url="https://s3.amazonaws.com/stat.184.data/BikeShare/DC_Stations.csv",destfile='DC_Stations.csv', method='curl')
+
+# Trips data; 74.6 MB... takes a few moments to download
+download.file(url="https://s3.amazonaws.com/stat.184.data/BikeShare/Trips.csv",destfile='Trips.csv', method='curl')
+
+DCStations <- read.csv("DC_Stations.csv")
+Trips <- read.csv("Trips.csv")
+```
+
+```{r}
+# Question 16
+nrow(Trips)
+```
+
+```{r}
+# Question 17
+DCStations %>%
+  group_by(name, nbEmptyDocks) %>%
+  summarise(total = sum(nbEmptyDocks)) %>%
+  arrange(desc(total)) %>%
+  tail(20)
+```
+
+```{r}
+# Question 18
+Trips %>%
+  group_by(sstation, estation) %>%
+  mutate(trip = "s")
+```
+
+```{r}
+# Question 19
+DCStations %>%
+  group_by(name, nbBikes) %>%
+  summarise(total = sum(nbBikes)) %>%
+  arrange(desc(total)) %>%
+  tail(30)
+```
+

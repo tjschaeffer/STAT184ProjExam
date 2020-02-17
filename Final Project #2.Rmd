@@ -1,0 +1,242 @@
+---
+title: "Final Project" 
+subtitle: "NBA Single Season Stats"
+author: "TJ Schaeffer"
+date: "11/27/18"
+output: html_notebook
+---
+
+## Set Up
+
+```{r}
+library(mosaic)
+library(tidyverse)
+library(DataComputing)
+library(rvest)
+library(lubridate)
+library(knitr)
+library(ggplot2)
+library(party)
+```
+
+## Project
+```{r}
+# Get the Data
+getwd()
+```
+```{r}
+setwd("~/Downloads")
+NBAPlayerStats <- read.csv("Seasons_Stats.csv")
+```
+
+```{r}
+# Inspect the Data
+str(NBAPlayerStats)
+```
+
+```{r}
+# Clean up the data
+NBAPlayerStatsClean <-
+  NBAPlayerStats %>%
+  select(Year, Player, Pos, Age, Tm, G, MP, PER, TS., WS, FG, FGA, FG., eFG., FT, FTA, FT., TRB, AST, PF, PTS) %>%
+  rename(TSP = TS., eFGP = eFG.) %>%
+  ungroup(TSP) %>%
+  mutate(PTSAvg = PTS / G) %>%
+  mutate(TRBAvg = TRB / G) %>%
+  mutate(ASTAvg = AST / G) %>% # Creating 3 per-game average variables
+  filter(G >= 57, Year >= 1952, Tm != "TOT", Pos != "F-G") %>% #Filter out notable statistics that would lead to a very clean table. Filtered after 1952 because 1952 was the first year rebounds and assists were calculated, filtered out seasons when player played for more than one team (want season with one team), and the two positions that were not need in F-G and F-C.
+  filter(Pos != "F-C")
+
+```
+## Note: 
+### I believe 25 games is the maximum amount of games an NBA player could miss to have a justifiable season. Knowing there is 82 regular season games in a single NBA season, 82-25 = 57, minimum amount of games a player had to play to be considered. 
+
+# Introduction 
+### Today, I'm going to create a team with the best players statistically at each position. In basketball, there is traditionally 5 poisitions: a point guard (PG), a shooting guard (SG), a small forward (SF), a power forward (PF), and a center (C). In the cleaned table is a list of all players single season stats since 1952 until the 2016-2017 season, and I plan on using this to find different associations between variables and eventually find the best single-seasons at each position to build the ultimate starting 5. 
+
+### Before I pick my team, I want to show how different statistics lean towards different positions. For example, I am going to use the variable assists ("AST" in the data table) to show how point guards are more likely to be more responible for having assists than any other position. 
+
+```{r}
+  PlayerAstAvg <-
+  NBAPlayerStatsClean %>%
+  group_by(Player, Pos, ASTAvg) %>%
+  summarise(total = sum(ASTAvg))
+
+AstAvgGraph <-
+  PlayerAstAvg %>%
+  ggplot(aes(x = Player, y = total, color = Pos)) +
+  geom_point() 
+
+AstAvgGraph
+```
+
+### Additionally, going along the same lines, I want to show how the variable rebounds (TRB in the data table) lean strongly towards centers and power forwards. This time, I will do it through the use of a bar graph.
+
+```{r}
+PlayerTRBAvg <-
+  NBAPlayerStatsClean %>%
+  group_by(Pos, TRBAvg) %>%
+  summarise(total = mean(TRBAvg))
+
+TRBAvgGraph <-
+  PlayerTRBAvg %>%
+  ggplot(aes(x = reorder(Pos, desc(total)), y = total)) +
+  geom_bar(stat="identity", fill="blue", color="red", alpha=.2)
+
+TRBAvgGraph
+```
+
+### Before I go on to picking my starting lineup, I'm going to show how the total points scored in a season has steadily increased over time. Additionally, the two lines signal singifcant years: 1979 (when the 3 point line was introduced) and 2012 (when the NBA season was shortened due to a lockout). I also added a stat smoother to show the general trend of the graph. 
+```{r}
+TotalPTS <-
+NBAPlayerStatsClean %>%
+  select(Year, PTS) %>%
+  group_by(Year) %>%
+  summarise(totalpts = sum(PTS))
+
+TotalPTS %>%
+  ggplot(aes(x = Year, y = totalpts)) +
+  geom_line() +
+  geom_smooth() +
+  geom_vline(xintercept = 1979) +
+  geom_vline(xintercept = 2012)
+```
+
+### Following along, let's look at the average PER of players named Michael. 
+```{r}
+Michael <-
+NBAPlayerStatsClean %>%
+  filter(grepl("Michael", Player, ignore.case = TRUE)) %>%
+  group_by(Player) %>%
+  summarise(AvgPER = mean(PER))
+print(Michael)
+
+Michael %>%
+  mutate(Player = gsub("Michael", "Michael", Player))
+```
+
+
+### Now, let's find the average PER of players named Kevin and combine it with the Michael data table to find the average PER of all the players named Michael and Kevin.
+```{r}
+Kevin <-
+NBAPlayerStatsClean %>%
+  filter(grepl("Kevin", Player, ignore.case = TRUE)) %>%
+  group_by(Player) %>%
+  summarise(AvgPER = mean(PER))
+print(Kevin)
+```
+
+
+```{r}
+MichaelandKevin <-
+Michael %>%
+  full_join(Kevin)
+print(MichaelandKevin)
+
+MKGraph <-
+  MichaelandKevin %>%
+  ggplot(aes(x = Player, y = AvgPER)) +
+  geom_point(aes(color = Player))
+  
+plot(MKGraph)
+```
+
+
+### Now that I have established how different statistics lean towards different positions, I am going to use 3 different statistics that are calculated and affected regardless of position: PER (player-efficiency rating), WS (win shares), and TSP (true shooting percentage).PER is essentially a summary of all player's offensive and defensive statistics into a single number, while WS is a number that stands for a player's value towards it's team's success, as 3 WS is equal to 1 team win. Additionally, TSP calculates one's scoring efficiency from the inside/outside the 3 point line and at the free-throw line. I will use these to create an equation that finds the total contribution (the variable will be called "TC") of a player who contribute the most individually and to their respective team that season at each of the 5 main positions to create the best starting five out there. In this equation will also include the variable that best defines success at their respective position, like ASTAvg or PTSAvg. 
+
+
+### First up is the point guard position.I find the point guard positon to be easily the most crucial position on the floor. At this postion, I want someone who knows how to be a team player and distribute the ball offensively. As a result, I added the assist statistic to this TC equation, and the result was 2016 Steph Curry, who lead his team to a NBA championship that year.
+```{r}
+PGNBAPlayerStatsClean <- 
+NBAPlayerStatsClean %>%
+  mutate(TSP = TSP * 100) %>%
+  mutate(TACH = (WS*2) + PER + TSP + ASTAvg) %>%
+  group_by(Player, Pos, Year, TACH) %>%
+  filter(Pos == "PG") %>%
+  summarise(count = sum(TACH)) %>%
+  arrange(desc(count)) %>%
+  head(10)
+  
+PGNBAPlayerStatsClean
+```
+
+
+## Next up is the shooting guard position, where I believe this athlete need to be the go to scoring while leading the team defensively. To the surprise of nonone, Michael Jordan's 1988 season with the eventual NBA Champion Bulls leads this group while being one of the most dominant seasons in NBA history.
+```{r}
+SGNBAPlayerStatsClean <-
+  NBAPlayerStatsClean %>%
+  mutate(TSP = TSP * 100) %>%
+  mutate(TACH = (WS*2) + PER + TSP + PTSAvg) %>%
+  group_by(Player, Pos, Year, TACH) %>%
+  filter(Pos == "SG") %>%
+  summarise(count = sum(TACH)) %>%
+  arrange(desc(count)) %>%
+  head(10)
+
+SGNBAPlayerStatsClean
+```
+
+### This group became a surprise for me. At the small forward position, you want a player that can do it all, making it probably the most important poistion besides point guard. Understanding that, I was shocked to find that Lebron James, who has always been in the debate for greatest player of all time alongside Michael Jordan, did not have the single best season at the small forward position. Rather, it was Kevin Durant in 2014, who edged Lebron's 2009 TACH by roughly a single point. 
+```{r}
+SFNBAPlayerStatsClean <-
+  NBAPlayerStatsClean %>%
+  mutate(TSP = TSP * 100) %>%
+  mutate(TACH = (WS*2) + PER + TSP + (1/2 * PTSAvg) + (1/2 * TRBAvg) + (1/2 * ASTAvg)) %>%
+  group_by(Player, Pos, Year, TACH) %>%
+  filter(Pos == "SF") %>%
+  summarise(count = sum(TACH)) %>%
+  arrange(desc(count)) %>%
+  head(10)
+
+SFNBAPlayerStatsClean
+```
+### At the power forward position, the demands get trickier. Usually, you want your power forward to be a good scorer while contributing for a majority of rebounds alongside the center. After doing the TACH equation for this position, I was surprised to find Lebron James, who has traditionally been a small forward in his career, rise to the top of the power forward list, as his season as a PF in 2013 for the Miami Heat was arguably the best of his career.
+```{r}
+PFNBAPlayerStatsClean <-
+  NBAPlayerStatsClean %>%
+  mutate(TSP = TSP * 100) %>%
+  mutate(TACH = (WS *2) + PER + TSP + (TRBAvg) + (1/2 * PTSAvg)) %>%
+  group_by(Player, Pos, Year, TACH) %>%
+  filter(Pos == "PF") %>%
+  summarise(count = sum(TACH)) %>%
+  arrange(desc(count)) %>%
+  head(10)
+
+PFNBAPlayerStatsClean
+```
+### Last but not least, the center position is depedent for the majority of rebounds and defense on the inside. According to the equation below, the greatest season of a center was Wilt Chambelain in 1961.
+```{r}
+CNBAPlayerStatsClean <-
+  NBAPlayerStatsClean %>%
+  mutate(TSP = TSP * 100) %>%
+  mutate(TACH = (WS*2) + PER + TSP + TRB) %>%
+  group_by(Player, Pos, Year, TACH) %>%
+  filter(Pos == "C") %>%
+  summarise(count = sum(TACH)) %>%
+  arrange(desc(count)) %>%
+  head(10)
+
+CNBAPlayerStatsClean
+```
+
+# Conclusion
+### Overall, this was one of the coolest projects I have ever done. I have always been into calculating sports numbers, but it was really interesting to see who put up the best single seasons in NBA history, while seeing how the points/season average changed over the years. It was also cool seeing how the people in the top 10 of each position table are either in the Hall of Fame (marked by *) or going to be in the Hall of Fame (Keving Durant, Steph Curry, Lebron James, etc.). Overall, I'm looking forward to doing many more of these projects. 
+
+# Thought Provoker
+### LET'S GET A LINEAR MODEL AND TREE GOING!
+```{r}
+MyLinearModel <-
+  lm(formula = PTSAvg ~ Year + Pos + Age + TSP, data = NBAPlayerStatsClean)
+summary(MyLinearModel)
+
+```
+```{r}
+CTreeNBA <-
+  ctree(formula = PTSAvg ~ TSP, data = NBAPlayerStatsClean)
+plot(CTreeNBA, type = "simple")
+```
+
+```{r}
+NBAPlayerStatsClean[,]
+```
+
